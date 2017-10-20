@@ -79,14 +79,14 @@ struct instruction isa[]=
     {0x24, 2}, /* Zero Page */
     {0x2c, 3}, /* Absolute */
     /* branch */
-    {0x10, 3}, /* BPL (Branch on PLus) */
-    {0x30, 3}, /* BMI (Branch on MInus) */
-    {0x50, 3}, /* BVC (Branch on oVerflow Clear) */
-    {0x70, 3}, /* BVS (Branch on oVerflow Set) */
-    {0x90, 3}, /* BCC (Branch on Carry Clear) */
-    {0xb0, 3}, /* BCS (Branch on Carry Set) */
-    {0xd0, 3}, /* BNE (Branch on Not Equal) */
-    {0xf0, 3}, /* BEQ (Branch on EQual) */
+    {0x10, 2}, /* BPL (Branch on PLus) */
+    {0x30, 2}, /* BMI (Branch on MInus) */
+    {0x50, 2}, /* BVC (Branch on oVerflow Clear) */
+    {0x70, 2}, /* BVS (Branch on oVerflow Set) */
+    {0x90, 2}, /* BCC (Branch on Carry Clear) */
+    {0xb0, 2}, /* BCS (Branch on Carry Set) */
+    {0xd0, 2}, /* BNE (Branch on Not Equal) */
+    {0xf0, 2}, /* BEQ (Branch on EQual) */
     /* break */
     {0x00, 1}, /* Implied */
     /* cmp (compare accumulator) */
@@ -297,7 +297,7 @@ static bool instr_fetch(uint8_t *op_code, uint8_t *data, uint8_t *num_data)
     if(!instr)
     {
         /* error handle for illigle instruction */
-        printf("can not find op code [%0x02x] on pc [0x04x]\n", *op_code, pc);
+        printf("can not find op code [0x%02x] on pc [0x%04x]\n", *op_code, pc);
         return false;
     }
 
@@ -306,6 +306,9 @@ static bool instr_fetch(uint8_t *op_code, uint8_t *data, uint8_t *num_data)
     {
         cpu_mem_read(pc+1, data, *num_data);
     }
+
+    /* update pc */
+    cpu6502.regs.pc+=(instr->num_op+1);
 
     return true;
 }
@@ -408,9 +411,6 @@ static bool instr_exec(uint8_t op_code, uint8_t *data, uint8_t num_data)
             //return false;
             break;
     }
-
-    /* update pc */
-    cpu6502.regs.pc+=(num_data+1);
 
     return true;
 }
