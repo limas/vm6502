@@ -12,19 +12,19 @@
 #define STATUS_REG_OVERFLOW  ((cpu6502.regs.sr&BIT(6))?(1):(0))
 #define STATUS_REG_NEGATIVE  ((cpu6502.regs.sr&BIT(7))?(1):(0))
 
-#define STATUS_REG_SET_CARRY()     do{cpu6502.regs.sr|BIT(0);}while(0)
-#define STATUS_REG_SET_ZERO()      do{cpu6502.regs.sr|BIT(1);}while(0)
-#define STATUS_REG_SET_INTERRUPT() do{cpu6502.regs.sr|BIT(2);}while(0)
-#define STATUS_REG_SET_DECIMAL()   do{cpu6502.regs.sr|BIT(3);}while(0)
-#define STATUS_REG_SET_OVERFLOW()  do{cpu6502.regs.sr|BIT(6);}while(0)
-#define STATUS_REG_SET_NEGATIVE()  do{cpu6502.regs.sr|BIT(7);}while(0)
+#define STATUS_REG_SET_CARRY()     do{cpu6502.regs.sr|=BIT(0);}while(0)
+#define STATUS_REG_SET_ZERO()      do{cpu6502.regs.sr|=BIT(1);}while(0)
+#define STATUS_REG_SET_INTERRUPT() do{cpu6502.regs.sr|=BIT(2);}while(0)
+#define STATUS_REG_SET_DECIMAL()   do{cpu6502.regs.sr|=BIT(3);}while(0)
+#define STATUS_REG_SET_OVERFLOW()  do{cpu6502.regs.sr|=BIT(6);}while(0)
+#define STATUS_REG_SET_NEGATIVE()  do{cpu6502.regs.sr|=BIT(7);}while(0)
 
-#define STATUS_REG_CLR_CARRY()     do{cpu6502.regs.sr&(~BIT(0));}while(0)
-#define STATUS_REG_CLR_ZERO()      do{cpu6502.regs.sr&(~BIT(1));}while(0)
-#define STATUS_REG_CLR_INTERRUPT() do{cpu6502.regs.sr&(~BIT(2));}while(0)
-#define STATUS_REG_CLR_DECIMAL()   do{cpu6502.regs.sr&(~BIT(3));}while(0)
-#define STATUS_REG_CLR_OVERFLOW()  do{cpu6502.regs.sr&(~BIT(6));}while(0)
-#define STATUS_REG_CLR_NEGATIVE()  do{cpu6502.regs.sr&(~BIT(7));}while(0)
+#define STATUS_REG_CLR_CARRY()     do{cpu6502.regs.sr&=(~BIT(0));}while(0)
+#define STATUS_REG_CLR_ZERO()      do{cpu6502.regs.sr&=(~BIT(1));}while(0)
+#define STATUS_REG_CLR_INTERRUPT() do{cpu6502.regs.sr&=(~BIT(2));}while(0)
+#define STATUS_REG_CLR_DECIMAL()   do{cpu6502.regs.sr&=(~BIT(3));}while(0)
+#define STATUS_REG_CLR_OVERFLOW()  do{cpu6502.regs.sr&=(~BIT(6));}while(0)
+#define STATUS_REG_CLR_NEGATIVE()  do{cpu6502.regs.sr&=(~BIT(7));}while(0)
 
 struct regs
 {
@@ -236,7 +236,7 @@ struct instruction isa[]=
 static struct cpu cpu6502;
 
 extern bool cpu_mem_read(uint16_t addr, uint8_t *data, uint16_t len);
-extern bool cpu_mem_write(uint16_t addr, uint8_t data, uint16_t len);
+extern bool cpu_mem_write(uint16_t addr, uint8_t *data, uint16_t len);
 
 void cpu_dump_regs(void)
 {
@@ -263,6 +263,13 @@ void cpu_reset(void)
     cpu6502.regs.pc = (data<<8)&0xff00;
     cpu_mem_read(0xfffc, &data, 1);
     cpu6502.regs.pc |= (data&0x00ff);
+
+    /* set registers to default value */
+    cpu6502.regs.acc = 0x00;
+    cpu6502.regs.idx_x = 0x00;
+    cpu6502.regs.idx_y = 0x00;
+    cpu6502.regs.sr = 0x34;
+    cpu6502.regs.sp = 0xfd;
 }
 
 static struct instruction *_find_instruction(uint8_t op_code)
@@ -287,7 +294,6 @@ static bool _handle_interrupt(void)
 
 static bool instr_fetch(uint8_t *op_code, uint8_t *data, uint8_t *num_data)
 {
-    uint8_t code;
     uint16_t pc;
     struct instruction *instr;
 
@@ -323,6 +329,8 @@ static bool instr_adc(uint8_t op_code, uint8_t *data, uint8_t num_data)
     {
     
     }
+
+    return true;
 }
 
 static bool instr_exec(uint8_t op_code, uint8_t *data, uint8_t num_data)
@@ -331,6 +339,36 @@ static bool instr_exec(uint8_t op_code, uint8_t *data, uint8_t num_data)
 
     switch(op_code)
     {
+        /* Jump Instructions */
+        case 0x20: /* JSR (Jump to SubRoutine) */
+            {
+                uint8_t value[2];
+
+                value[0] = (cpu6502.regs.pc+2)&0x00ff;
+                value[1] = ((cpu6502.regs.pc+2)&0xff00)>>8;
+                cpu_mem_write(cpu6502.regs.sp+0x100, value, 2);
+                cpu6502.regs.sp -= 2;
+            }
+        case 0x4c: /* JMP (JuMP) Absolute */
+            cpu6502.regs.pc = (data[1]<<8 | data[0]);
+            break;
+        case 0x6c: /* JMP (JuMP) Indirect */
+            {
+                uint8_t value[2];
+
+                cpu_mem_read(((data[1]<<8) |  data[0]), value, 2);
+                cpu6502.regs.pc = ((value[1]<<8) | value[0]);
+            }
+            break;
+        case 0x60:
+            {
+                uint8_t value[2];
+
+                cpu_mem_read(cpu6502.regs.sp+0x100+2, value, 2);
+                cpu6502.regs.sp += 2;
+                cpu6502.regs.pc = ((value[1]<<8) | value[0])+1;
+            }
+            break;
         /* ADC */
         case 0x69:
         case 0x65:
@@ -344,19 +382,19 @@ static bool instr_exec(uint8_t op_code, uint8_t *data, uint8_t num_data)
             break;
         /* Stack Instructions */
         case 0x08: /* PHP (PusH Processor status) */
-            cpu_mem_write(cpu6502.regs.sp+0x100, cpu6502.regs.sr, 1);
+            cpu_mem_write(cpu6502.regs.sp+0x100, &cpu6502.regs.sr, 1);
             cpu6502.regs.sp--;
             break;
         case 0x28: /* PLP (PuLl Processor status) */
-            cpu_mem_read(cpu6502.regs.sp+0x100, &cpu6502.regs.sr, 1);
+            cpu_mem_read(cpu6502.regs.sp+0x100+1, &cpu6502.regs.sr, 1);
             cpu6502.regs.sp++;
             break;
         case 0x48: /* PHA (PusH Accumulator) */
-            cpu_mem_write(cpu6502.regs.sp+0x100, cpu6502.regs.acc, 1);
+            cpu_mem_write(cpu6502.regs.sp+0x100, &cpu6502.regs.acc, 1);
             cpu6502.regs.sp--;
             break;
         case 0x68: /* PLA (PuLl Accumulator) */
-            cpu_mem_read(cpu6502.regs.sp+0x100, &cpu6502.regs.acc, 1);
+            cpu_mem_read(cpu6502.regs.sp+0x100+1, &cpu6502.regs.acc, 1);
             cpu6502.regs.sp++;
 
             if(cpu6502.regs.acc == 0)
@@ -368,6 +406,7 @@ static bool instr_exec(uint8_t op_code, uint8_t *data, uint8_t num_data)
                 STATUS_REG_SET_NEGATIVE();
             else
                 STATUS_REG_CLR_NEGATIVE();
+
             break;
         case 0x9A: /* TXS (Transfer X to Stack ptr) */
             cpu6502.regs.sp = cpu6502.regs.idx_x;
@@ -412,7 +451,7 @@ static bool instr_exec(uint8_t op_code, uint8_t *data, uint8_t num_data)
             break;
     }
 
-    return true;
+    return ret;
 }
 
 bool cpu_run(void)
@@ -433,5 +472,7 @@ bool cpu_run(void)
         {
         }
     }
+
+    return true;
 }
 

@@ -50,15 +50,17 @@ struct cartridge
     struct array vrom;
 };
 
-typedef bool (*io_handle_write)(uint16_t addr, uint8_t data, uint16_t len);
+typedef bool (*io_handle_write)(uint16_t addr, uint8_t *data, uint16_t len);
 typedef bool (*io_handle_read)(uint16_t addr, uint8_t *data, uint16_t len);
 
-static bool cartridge_rom_write(uint16_t addr, uint8_t data, uint16_t len);
+static bool ram_write(uint16_t addr, uint8_t *data, uint16_t len);
+static bool ram_read(uint16_t addr, uint8_t *data, uint16_t len);
+static bool cartridge_rom_write(uint16_t addr, uint8_t *data, uint16_t len);
 static bool cartridge_rom_read(uint16_t addr, uint8_t *data, uint16_t len);
 
 struct memory_map_entry
 {
-    int8_t *name;
+    char *name;
     uint16_t start;
     uint16_t end;
     io_handle_write write;
@@ -76,6 +78,7 @@ struct apu
 };
 
 static struct config gconfig;
+static uint8_t *gram;
 static struct cartridge gcartridge;
 
 struct memory_map_entry cpu_map[]=
@@ -84,6 +87,8 @@ struct memory_map_entry cpu_map[]=
         .name="ram",
         .start=0x0000,
         .end=0x1fff,
+        .write=ram_write,
+        .read=ram_read,
     },
     {
         .name="io",
@@ -186,7 +191,7 @@ bool cpu_mem_read(uint16_t addr, uint8_t *data, uint16_t len)
     return false;
 }
 
-bool cpu_mem_write(uint16_t addr, uint8_t data, uint8_t len)
+bool cpu_mem_write(uint16_t addr, uint8_t *data, uint8_t len)
 {
     struct memory_map_entry *ip;
 
@@ -206,7 +211,53 @@ bool cpu_mem_write(uint16_t addr, uint8_t data, uint8_t len)
     return false;
 }
 
-static bool cartridge_rom_write(uint16_t addr, uint8_t data, uint16_t len)
+static bool ram_write(uint16_t addr, uint8_t *data, uint16_t len)
+{
+    uint16_t index;
+
+    for(index=0; index<len; index++)
+    {
+        gram[addr+index] = data[index];
+    }
+
+    return true;
+}
+
+static bool ram_read(uint16_t addr, uint8_t *data, uint16_t len)
+{
+    uint16_t index;
+
+    for(index=0; index<len; index++)
+    {
+        data[index] = gram[addr+index];
+    }
+
+    return true;
+}
+
+static bool ram_deinit(void)
+{
+    if(gram)
+    {
+        free(gram);
+        gram = NULL;
+    }
+
+    return true;
+}
+
+static bool ram_init(void)
+{
+    if(!gram)
+        gram = (uint8_t *)malloc(0x800);
+
+    if(!gram)
+        return false;
+
+    return true;
+}
+
+static bool cartridge_rom_write(uint16_t addr, uint8_t *data, uint16_t len)
 {
     return false;
 }
@@ -237,6 +288,8 @@ static bool cartridge_rom_read(uint16_t addr, uint8_t *data, uint16_t len)
     {
     
     }
+
+    return true;
 }
 
 static bool unload_rom(void)
@@ -276,7 +329,7 @@ static bool load_rom(char *file_name)
 
     /* read header of nes format file */
     fread((void *)header, 1, sizeof(struct nes_header), fp);
-    if(strncmp(header->magic, "NES\x1a", 4))
+    if(strncmp((char *)header->magic, "NES\x1a", 4))
     {
         printf("unknown magic number.\n");
         return false;
@@ -330,7 +383,11 @@ int main(int argc, char **argv)
 
     //cpu_dump_regs();
 
-    //memory_init();
+    if(ram_init() == false)
+    {
+        printf("init ram fail.\n");
+        return -1;
+    }
 
     if(load_rom(gconfig.rom_name) == false)
     {
@@ -343,6 +400,8 @@ int main(int argc, char **argv)
     cpu_run();
 
     unload_rom();
+
+    ram_deinit();
 
     return 0;
 }
