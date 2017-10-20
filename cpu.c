@@ -308,7 +308,7 @@ static bool instr_fetch(uint8_t *op_code, uint8_t *data, uint8_t *num_data)
     }
 
     /* update pc */
-    cpu6502.regs.pc+=(instr->num_op+1);
+    cpu6502.regs.pc+=(instr->num_op);
 
     return true;
 }
