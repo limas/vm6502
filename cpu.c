@@ -310,7 +310,7 @@ static bool instr_fetch(uint8_t *op_code, uint8_t *data, uint8_t *num_data)
     return true;
 }
 
-static bool instr_adc(uint8_t op_code, uint8_t *data)
+static bool instr_adc(uint8_t op_code, uint8_t *data, uint8_t num_data)
 {
     if(STATUS_REG_DECIMAL) /* do BCD addition */
     {
@@ -339,6 +339,50 @@ static bool instr_exec(uint8_t op_code, uint8_t *data, uint8_t num_data)
         case 0x71:
             ret = instr_adc(op_code, data, num_data);
             break;
+        /* Stack Instructions */
+        case 0x08: /* PHP (PusH Processor status) */
+            cpu_mem_write(cpu6502.regs.sp+0x100, cpu6502.regs.sr, 1);
+            cpu6502.regs.sp--;
+            break;
+        case 0x28: /* PLP (PuLl Processor status) */
+            cpu_mem_read(cpu6502.regs.sp+0x100, &cpu6502.regs.sr, 1);
+            cpu6502.regs.sp++;
+            break;
+        case 0x48: /* PHA (PusH Accumulator) */
+            cpu_mem_write(cpu6502.regs.sp+0x100, cpu6502.regs.acc, 1);
+            cpu6502.regs.sp--;
+            break;
+        case 0x68: /* PLA (PuLl Accumulator) */
+            cpu_mem_read(cpu6502.regs.sp+0x100, &cpu6502.regs.acc, 1);
+            cpu6502.regs.sp++;
+
+            if(cpu6502.regs.acc == 0)
+                STATUS_REG_SET_ZERO();
+            else
+                STATUS_REG_CLR_ZERO();
+
+            if(cpu6502.regs.acc & 0x80)
+                STATUS_REG_SET_NEGATIVE();
+            else
+                STATUS_REG_CLR_NEGATIVE();
+            break;
+        case 0x9A: /* TXS (Transfer X to Stack ptr) */
+            cpu6502.regs.sp = cpu6502.regs.idx_x;
+            break;
+        case 0xBA: /* TSX (Transfer Stack ptr to X) */
+            cpu6502.regs.idx_x = cpu6502.regs.sp;
+
+            if(cpu6502.regs.idx_x == 0)
+                STATUS_REG_SET_ZERO();
+            else
+                STATUS_REG_CLR_ZERO();
+
+            if(cpu6502.regs.idx_x & 0x80)
+                STATUS_REG_SET_NEGATIVE();
+            else
+                STATUS_REG_CLR_NEGATIVE();
+            break;
+        /* Flag (Processor Status) Instructions */
         case 0x78: /* SEI (SEt Interrupt) */
             STATUS_REG_SET_INTERRUPT();
             break;
