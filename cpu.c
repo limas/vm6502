@@ -383,8 +383,26 @@ static bool instr_exec(uint8_t op_code, uint8_t *data, uint8_t num_data)
                 STATUS_REG_CLR_NEGATIVE();
             break;
         /* Flag (Processor Status) Instructions */
+        case 0x18: /* CLC (CLear Carry) */
+            STATUS_REG_CLR_CARRY();
+            break;
+        case 0x38: /* SEC (SEt Carry) */
+            STATUS_REG_SET_CARRY();
+            break;
+        case 0x58: /* CLI (CLear Interrupt)*/
+            STATUS_REG_CLR_INTERRUPT();
+            break;
         case 0x78: /* SEI (SEt Interrupt) */
             STATUS_REG_SET_INTERRUPT();
+            break;
+        case 0xB8: /* CLV (CLear oVerflow) */
+            STATUS_REG_CLR_OVERFLOW();
+            break;
+        case 0xD8: /* CLD (CLear Decimal) */
+            STATUS_REG_CLR_DECIMAL();
+            break;
+        case 0xF8: /* SED (SEt Decimal) */
+            STATUS_REG_SET_DECIMAL();
             break;
         default:
             //return false;
