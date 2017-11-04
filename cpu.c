@@ -319,6 +319,23 @@ static bool instr_fetch(uint8_t *op_code, uint8_t *data, uint8_t *num_data)
     return true;
 }
 
+static bool instr_load(uint8_t *reg, uint16_t addr)
+{
+    cpu_mem_read(addr, reg, 1);
+
+    if(*reg == 0)
+        STATUS_REG_SET_ZERO();
+    else
+        STATUS_REG_CLR_ZERO();
+
+    if(*reg & 0x80)
+        STATUS_REG_SET_NEGATIVE();
+    else
+        STATUS_REG_CLR_NEGATIVE();
+
+    return true;
+}
+
 static bool instr_adc(uint8_t op_code, uint8_t *data, uint8_t num_data)
 {
     if(STATUS_REG_DECIMAL) /* do BCD addition */
@@ -339,14 +356,131 @@ static bool instr_exec(uint8_t op_code, uint8_t *data, uint8_t num_data)
 
     switch(op_code)
     {
+        /* LDA (LoaD Accumulator) */
+        case 0xa9: /* Immediate */
+            cpu6502.regs.acc = data[0];
+
+            if(cpu6502.regs.acc == 0)
+                STATUS_REG_SET_ZERO();
+            else
+                STATUS_REG_CLR_ZERO();
+
+            if(cpu6502.regs.acc & 0x80)
+                STATUS_REG_SET_NEGATIVE();
+            else
+                STATUS_REG_CLR_NEGATIVE();
+            break;
+        case 0xa5: /* Zero Page */
+            instr_load(&cpu6502.regs.acc, data[0]);
+            break;
+        case 0xb5: /* Zero Page,X */
+            instr_load(&cpu6502.regs.acc, (data[0]+cpu6502.regs.idx_x)&0x00ff);
+            break;
+        case 0xad: /* Absolute */
+            {
+                uint16_t addr = ((data[1] << 8) + data[0]);
+                instr_load(&cpu6502.regs.acc, addr);
+            }
+            break;
+        case 0xbd: /* Absolute,X */
+            {
+                uint16_t addr = ((data[1] << 8) + data[0]) + cpu6502.regs.idx_x + STATUS_REG_CARRY;
+                instr_load(&cpu6502.regs.acc, addr);
+            }
+            break;
+        case 0xb9: /* Absolute,Y */
+            {
+                uint16_t addr = ((data[1] << 8) + data[0]) + cpu6502.regs.idx_y + STATUS_REG_CARRY;
+                instr_load(&cpu6502.regs.acc, addr);
+            }
+            break;
+        case 0xa1: /* X-indexed,Indirect */
+            {
+                uint16_t addr = (data[0] + cpu6502.regs.idx_x)&0x00ff;
+                cpu_mem_read(addr, (uint8_t *)&addr, 2);
+                instr_load(&cpu6502.regs.acc, addr);
+            }
+            break;
+        case 0xb1: /* Indirect,Y-indexed */
+            {
+                uint16_t addr;
+                cpu_mem_read(data[0], (uint8_t *)&addr, 2);
+                addr+=(cpu6502.regs.idx_y+STATUS_REG_CARRY);
+                instr_load(&cpu6502.regs.acc, addr);
+            }
+            break;
+        /* LDX (LoaD X register) */
+        case 0xa2: /* Immediate */
+            cpu6502.regs.idx_x = data[0];
+
+            if(cpu6502.regs.idx_x == 0)
+                STATUS_REG_SET_ZERO();
+            else
+                STATUS_REG_CLR_ZERO();
+
+            if(cpu6502.regs.idx_x & 0x80)
+                STATUS_REG_SET_NEGATIVE();
+            else
+                STATUS_REG_CLR_NEGATIVE();
+            break;
+        case 0xa6: /* Zero Page */
+            instr_load(&cpu6502.regs.idx_x, data[0]);
+            break;
+        case 0xb6: /* Zero Page,Y */
+            instr_load(&cpu6502.regs.idx_x, (data[0]+cpu6502.regs.idx_y)&0x00ff);
+            break;
+        case 0xae: /* Absolute */
+            {
+                uint16_t addr = ((data[1] << 8) + data[0]);
+                instr_load(&cpu6502.regs.idx_x, addr);
+            }
+            break;
+        case 0xbe: /* Absolute,Y */
+            {
+                uint16_t addr = ((data[1] << 8) + data[0]) + cpu6502.regs.idx_y + STATUS_REG_CARRY;
+                instr_load(&cpu6502.regs.idx_x, addr);
+            }
+            break;
+        /* LDY (LoaD Y register) */
+        case 0xa0: /* Immediate */
+            cpu6502.regs.idx_y = data[0];
+
+            if(cpu6502.regs.idx_y == 0)
+                STATUS_REG_SET_ZERO();
+            else
+                STATUS_REG_CLR_ZERO();
+
+            if(cpu6502.regs.idx_y & 0x80)
+                STATUS_REG_SET_NEGATIVE();
+            else
+                STATUS_REG_CLR_NEGATIVE();
+            break;
+        case 0xa4: /* Zero Page */
+            instr_load(&cpu6502.regs.idx_y, data[0]);
+            break;
+        case 0xb4: /* Zero Page,X */
+            instr_load(&cpu6502.regs.idx_y, (data[0]+cpu6502.regs.idx_x)&0x00ff);
+            break;
+        case 0xac: /* Absolute */
+            {
+                uint16_t addr = ((data[1] << 8) + data[0]);
+                instr_load(&cpu6502.regs.idx_y, addr);
+            }
+            break;
+        case 0xbc: /* Absolute,X */
+            {
+                uint16_t addr = ((data[1] << 8) + data[0]) + cpu6502.regs.idx_x + STATUS_REG_CARRY;
+                instr_load(&cpu6502.regs.idx_y, addr);
+            }
+            break;
         /* Jump Instructions */
         case 0x20: /* JSR (Jump to SubRoutine) */
             {
                 uint8_t value[2];
 
-                value[0] = (cpu6502.regs.pc+2)&0x00ff;
-                value[1] = ((cpu6502.regs.pc+2)&0xff00)>>8;
-                cpu_mem_write(cpu6502.regs.sp+0x100, value, 2);
+                value[0] = ((cpu6502.regs.pc-1)&0xff00)>>8;
+                value[1] = (cpu6502.regs.pc-1)&0x00ff;
+                cpu_mem_write(cpu6502.regs.sp-1+0x100, value, 2);
                 cpu6502.regs.sp -= 2;
             }
         case 0x4c: /* JMP (JuMP) Absolute */
@@ -360,13 +494,13 @@ static bool instr_exec(uint8_t op_code, uint8_t *data, uint8_t num_data)
                 cpu6502.regs.pc = ((value[1]<<8) | value[0]);
             }
             break;
-        case 0x60:
+        case 0x60: /* RTS (ReTurn from Subroutine) */
             {
                 uint8_t value[2];
 
-                cpu_mem_read(cpu6502.regs.sp+0x100+2, value, 2);
+                cpu_mem_read(cpu6502.regs.sp+0x100+1, value, 2);
+                cpu6502.regs.pc = ((value[0]<<8) | value[1])+1;
                 cpu6502.regs.sp += 2;
-                cpu6502.regs.pc = ((value[1]<<8) | value[0])+1;
             }
             break;
         /* ADC */
