@@ -26,6 +26,22 @@
 #define STATUS_REG_CLR_OVERFLOW()  do{cpu6502.regs.sr&=(~BIT(6));}while(0)
 #define STATUS_REG_CLR_NEGATIVE()  do{cpu6502.regs.sr&=(~BIT(7));}while(0)
 
+#define STATUS_REG_CHK_ZERO(r) \
+    do{ \
+        if((r) == 0) \
+            STATUS_REG_SET_ZERO(); \
+        else \
+            STATUS_REG_CLR_ZERO(); \
+    }while(0)
+
+#define STATUS_REG_CHK_NEGATIVE(r) \
+    do{ \
+        if((r) & 0x80) \
+            STATUS_REG_SET_NEGATIVE(); \
+        else \
+            STATUS_REG_CLR_NEGATIVE(); \
+    }while(0)
+
 struct regs
 {
     uint16_t pc;
@@ -323,15 +339,8 @@ static bool instr_load(uint8_t *reg, uint16_t addr)
 {
     cpu_mem_read(addr, reg, 1);
 
-    if(*reg == 0)
-        STATUS_REG_SET_ZERO();
-    else
-        STATUS_REG_CLR_ZERO();
-
-    if(*reg & 0x80)
-        STATUS_REG_SET_NEGATIVE();
-    else
-        STATUS_REG_CLR_NEGATIVE();
+    STATUS_REG_CHK_ZERO(*reg);
+    STATUS_REG_CHK_NEGATIVE(*reg);
 
     return true;
 }
@@ -360,15 +369,9 @@ static bool instr_exec(uint8_t op_code, uint8_t *data, uint8_t num_data)
         case 0xa9: /* Immediate */
             cpu6502.regs.acc = data[0];
 
-            if(cpu6502.regs.acc == 0)
-                STATUS_REG_SET_ZERO();
-            else
-                STATUS_REG_CLR_ZERO();
+            STATUS_REG_CHK_ZERO(cpu6502.regs.acc);
+            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.acc);
 
-            if(cpu6502.regs.acc & 0x80)
-                STATUS_REG_SET_NEGATIVE();
-            else
-                STATUS_REG_CLR_NEGATIVE();
             break;
         case 0xa5: /* Zero Page */
             instr_load(&cpu6502.regs.acc, data[0]);
@@ -413,15 +416,9 @@ static bool instr_exec(uint8_t op_code, uint8_t *data, uint8_t num_data)
         case 0xa2: /* Immediate */
             cpu6502.regs.idx_x = data[0];
 
-            if(cpu6502.regs.idx_x == 0)
-                STATUS_REG_SET_ZERO();
-            else
-                STATUS_REG_CLR_ZERO();
+            STATUS_REG_CHK_ZERO(cpu6502.regs.idx_x);
+            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.idx_x);
 
-            if(cpu6502.regs.idx_x & 0x80)
-                STATUS_REG_SET_NEGATIVE();
-            else
-                STATUS_REG_CLR_NEGATIVE();
             break;
         case 0xa6: /* Zero Page */
             instr_load(&cpu6502.regs.idx_x, data[0]);
@@ -445,15 +442,9 @@ static bool instr_exec(uint8_t op_code, uint8_t *data, uint8_t num_data)
         case 0xa0: /* Immediate */
             cpu6502.regs.idx_y = data[0];
 
-            if(cpu6502.regs.idx_y == 0)
-                STATUS_REG_SET_ZERO();
-            else
-                STATUS_REG_CLR_ZERO();
+            STATUS_REG_CHK_ZERO(cpu6502.regs.idx_y);
+            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.idx_y);
 
-            if(cpu6502.regs.idx_y & 0x80)
-                STATUS_REG_SET_NEGATIVE();
-            else
-                STATUS_REG_CLR_NEGATIVE();
             break;
         case 0xa4: /* Zero Page */
             instr_load(&cpu6502.regs.idx_y, data[0]);
@@ -531,15 +522,8 @@ static bool instr_exec(uint8_t op_code, uint8_t *data, uint8_t num_data)
             cpu_mem_read(cpu6502.regs.sp+0x100+1, &cpu6502.regs.acc, 1);
             cpu6502.regs.sp++;
 
-            if(cpu6502.regs.acc == 0)
-                STATUS_REG_SET_ZERO();
-            else
-                STATUS_REG_CLR_ZERO();
-
-            if(cpu6502.regs.acc & 0x80)
-                STATUS_REG_SET_NEGATIVE();
-            else
-                STATUS_REG_CLR_NEGATIVE();
+            STATUS_REG_CHK_ZERO(cpu6502.regs.acc);
+            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.acc);
 
             break;
         case 0x9A: /* TXS (Transfer X to Stack ptr) */
@@ -548,15 +532,9 @@ static bool instr_exec(uint8_t op_code, uint8_t *data, uint8_t num_data)
         case 0xBA: /* TSX (Transfer Stack ptr to X) */
             cpu6502.regs.idx_x = cpu6502.regs.sp;
 
-            if(cpu6502.regs.idx_x == 0)
-                STATUS_REG_SET_ZERO();
-            else
-                STATUS_REG_CLR_ZERO();
+            STATUS_REG_CHK_ZERO(cpu6502.regs.idx_x);
+            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.idx_x);
 
-            if(cpu6502.regs.idx_x & 0x80)
-                STATUS_REG_SET_NEGATIVE();
-            else
-                STATUS_REG_CLR_NEGATIVE();
             break;
         /* Flag (Processor Status) Instructions */
         case 0x18: /* CLC (CLear Carry) */
