@@ -57,196 +57,232 @@ struct cpu
     struct regs regs;
 };
 
+/*
+ * Address Modes:
+ *
+ * A      ....  Accumulator          OPC A        operand is AC (implied single byte instruction)
+ * abs    ....  absolute             OPC $LLHH    operand is address $HHLL *
+ * abs,X  ....  absolute, X-indexed  OPC $LLHH,X  operand is address; effective address is address incremented by X with carry **
+ * abs,Y  ....  absolute, Y-indexed  OPC $LLHH,Y  operand is address; effective address is address incremented by Y with carry **
+ * #      ....  immediate            OPC #$BB     operand is byte BB
+ * impl   ....  implied              OPC          operand implied
+ * ind    ....  indirect             OPC ($LLHH)  operand is address; effective address is contents of word at address: C.w($HHLL)
+ * X,ind  ....  X-indexed, indirect  OPC ($LL,X)  operand is zeropage address; effective address is word in (LL + X, LL + X + 1), inc. without carry: C.w($00LL + X)
+ * ind,Y  ....  indirect, Y-indexed  OPC ($LL),Y  operand is zeropage address; effective address is word in (LL, LL + 1) incremented by Y with carry: C.w($00LL) + Y
+ * rel    ....  relative             OPC $BB      branch target is PC + signed offset BB ***
+ * zpg    ....  zeropage             OPC $LL      operand is zeropage address (hi-byte is zero, address = $00LL)
+ * zpg,X  ....  zeropage, X-indexed  OPC $LL,X    operand is zeropage address; effective address is address incremented by X without carry **
+ * zpg,Y  ....  zeropage, Y-indexed  OPC $LL,Y    operand is zeropage address; effective address is address incremented by Y without carry **
+ */
+
+enum addr_mode
+{
+    AM_ACC = 0, /* accumulator */
+    AM_ABS, /* absolute */
+    AM_ABS_X, /* absolute, X-indexed */
+    AM_ABS_Y, /* absolute, Y-indexed */
+    AM_IMM, /* immediate */
+    AM_IMPL, /* implied */
+    AM_IND, /* indirect */
+    AM_X_IND, /* X-indexed, indirect */
+    AM_IND_Y, /* indirect, Y-indexed */
+    AM_REL, /* relative */
+    AM_ZPG, /* zeropage */
+    AM_ZPG_X, /* zeropage, X-indexed */
+    AM_ZPG_Y, /* zeropage, Y-indexed */
+};
+
 struct instruction
 {
     uint8_t code;
     uint8_t num_op;
+    enum addr_mode addr_mode;
 };
 
 struct instruction isa[]=
 {
     /* nop */
-    {0xea, 1},
+    {0xea, 1, AM_IMPL},
     /* adc */
-    {0x69, 2}, /* Immediate */
-    {0x65, 2}, /* Zero Page */
-    {0x75, 2}, /* Zero Page,X */
-    {0x6d, 3}, /* Absolute */
-    {0x7d, 3}, /* Absolute,X */
-    {0x79, 3}, /* Absolute,Y */
-    {0x61, 2}, /* Indirect,X */
-    {0x71, 2}, /* Indirect,Y */
+    {0x69, 2, AM_IMM},
+    {0x65, 2, AM_ZPG},
+    {0x75, 2, AM_ZPG_X},
+    {0x6d, 3, AM_ABS},
+    {0x7d, 3, AM_ABS_X},
+    {0x79, 3, AM_ABS_Y},
+    {0x61, 2, AM_X_IND},
+    {0x71, 2, AM_IND_Y},
     /* and */
-    {0x29, 2}, /* Immediate */
-    {0x25, 2}, /* Zero Page */
-    {0x35, 2}, /* Zero Page,X */
-    {0x2d, 3}, /* Absolute */
-    {0x3d, 3}, /* Absolute,X */
-    {0x39, 3}, /* Absolute,Y */
-    {0x21, 2}, /* Indirect,X */
-    {0x31, 2}, /* Indirect,Y */
+    {0x29, 2, AM_IMM},
+    {0x25, 2, AM_ZPG},
+    {0x35, 2, AM_ZPG_X},
+    {0x2d, 3, AM_ABS},
+    {0x3d, 3, AM_ABS_X},
+    {0x39, 3, AM_ABS_Y},
+    {0x21, 2, AM_X_IND},
+    {0x31, 2, AM_IND_Y},
     /* asl */
-    {0x0a, 1}, /* Accumulator */
-    {0x06, 2}, /* Zero Page */
-    {0x16, 2}, /* Zero Page,X */
-    {0x0e, 3}, /* Absolute */
-    {0x1e, 3}, /* Absolute,X */
+    {0x0a, 1, AM_ACC},
+    {0x06, 2, AM_ZPG},
+    {0x16, 2, AM_ZPG_X},
+    {0x0e, 3, AM_ABS},
+    {0x1e, 3, AM_ABS_X},
     /* bit(test bits) */
-    {0x24, 2}, /* Zero Page */
-    {0x2c, 3}, /* Absolute */
+    {0x24, 2, AM_ZPG},
+    {0x2c, 3, AM_ABS},
     /* branch */
-    {0x10, 2}, /* BPL (Branch on PLus) */
-    {0x30, 2}, /* BMI (Branch on MInus) */
-    {0x50, 2}, /* BVC (Branch on oVerflow Clear) */
-    {0x70, 2}, /* BVS (Branch on oVerflow Set) */
-    {0x90, 2}, /* BCC (Branch on Carry Clear) */
-    {0xb0, 2}, /* BCS (Branch on Carry Set) */
-    {0xd0, 2}, /* BNE (Branch on Not Equal) */
-    {0xf0, 2}, /* BEQ (Branch on EQual) */
+    {0x10, 2, AM_REL}, /* BPL (Branch on PLus) */
+    {0x30, 2, AM_REL}, /* BMI (Branch on MInus) */
+    {0x50, 2, AM_REL}, /* BVC (Branch on oVerflow Clear) */
+    {0x70, 2, AM_REL}, /* BVS (Branch on oVerflow Set) */
+    {0x90, 2, AM_REL}, /* BCC (Branch on Carry Clear) */
+    {0xb0, 2, AM_REL}, /* BCS (Branch on Carry Set) */
+    {0xd0, 2, AM_REL}, /* BNE (Branch on Not Equal) */
+    {0xf0, 2, AM_REL}, /* BEQ (Branch on EQual) */
     /* break */
-    {0x00, 1}, /* Implied */
+    {0x00, 1, AM_IMPL},
     /* cmp (compare accumulator) */
-    {0xc9, 2}, /* Immediate */
-    {0xc5, 2}, /* Zero Page */
-    {0xd5, 2}, /* Zero Page,X */
-    {0xcd, 3}, /* Absolute */
-    {0xdd, 3}, /* Absolute,X */
-    {0xd9, 3}, /* Absolute,Y */
-    {0xc1, 2}, /* Indirect,X */
-    {0xd1, 2}, /* Indirect,Y */
+    {0xc9, 2, AM_IMM},
+    {0xc5, 2, AM_ZPG},
+    {0xd5, 2, AM_ZPG_X},
+    {0xcd, 3, AM_ABS},
+    {0xdd, 3, AM_ABS_X},
+    {0xd9, 3, AM_ABS_Y},
+    {0xc1, 2, AM_X_IND},
+    {0xd1, 2, AM_IND_Y},
     /* cpx (compare x register) */
-    {0xe0, 2}, /* Immediate */
-    {0xe4, 2}, /* Zero Page */
-    {0xec, 3}, /* Absolute */
+    {0xe0, 2, AM_IMM},
+    {0xe4, 2, AM_ZPG},
+    {0xec, 3, AM_ABS},
     /* cpy (compare y register) */
-    {0xc0, 2}, /* Immediate */
-    {0xc4, 2}, /* Zero Page */
-    {0xcc, 3}, /* Absolute */
+    {0xc0, 2, AM_IMM},
+    {0xc4, 2, AM_ZPG},
+    {0xcc, 3, AM_ABS},
     /* dec (decrement memory) */
-    {0xc6, 2}, /* Zero Page */
-    {0xd6, 2}, /* Zero Page,X */
-    {0xce, 3}, /* Absolute,X */
-    {0xde, 3}, /* Absolute,Y */
+    {0xc6, 2, AM_ZPG},
+    {0xd6, 2, AM_ZPG_X},
+    {0xce, 3, AM_ABS},
+    {0xde, 3, AM_ABS_X},
     /* eor (bitwise exclusive or) */
-    {0x49, 2}, /* Immediate */
-    {0x45, 2}, /* Zero Page */
-    {0x55, 2}, /* Zero Page,X */
-    {0x4d, 3}, /* Absolute */
-    {0x5d, 3}, /* Absolute,X */
-    {0x59, 3}, /* Absolute,Y */
-    {0x41, 2}, /* Indirect,X */
-    {0x51, 2}, /* Indirect,Y */
+    {0x49, 2, AM_IMM},
+    {0x45, 2, AM_ZPG},
+    {0x55, 2, AM_ZPG_X},
+    {0x4d, 3, AM_ABS},
+    {0x5d, 3, AM_ABS_X},
+    {0x59, 3, AM_ABS_Y},
+    {0x41, 2, AM_X_IND},
+    {0x51, 2, AM_IND_Y},
     /* flag (process status) */
-    {0x18, 1}, /* CLC (CLear Carry) */
-    {0x38, 1}, /* SEC (SEt Carry) */
-    {0x58, 1}, /* CLI (CLear Interrupt) */
-    {0x78, 1}, /* SEI (SEt Interrupt) */
-    {0xb8, 1}, /* CLV (CLear oVerflow) */
-    {0xd8, 1}, /* CLD (CLear Decimal) */
-    {0xf8, 1}, /* SED (SEt Decimal) */
+    {0x18, 1, AM_IMPL}, /* CLC (CLear Carry) */
+    {0x38, 1, AM_IMPL}, /* SEC (SEt Carry) */
+    {0x58, 1, AM_IMPL}, /* CLI (CLear Interrupt) */
+    {0x78, 1, AM_IMPL}, /* SEI (SEt Interrupt) */
+    {0xb8, 1, AM_IMPL}, /* CLV (CLear oVerflow) */
+    {0xd8, 1, AM_IMPL}, /* CLD (CLear Decimal) */
+    {0xf8, 1, AM_IMPL}, /* SED (SEt Decimal) */
     /* inc (incremental memory) */
-    {0xe6, 2}, /* Zero Page */
-    {0xf6, 2}, /* Zero Page,X */
-    {0xee, 3}, /* Absolute */
-    {0xfe, 3}, /* Absolute,X */
+    {0xe6, 2, AM_ZPG},
+    {0xf6, 2, AM_ZPG_X},
+    {0xee, 3, AM_ABS},
+    {0xfe, 3, AM_ABS_X},
     /* jmp */
-    {0x4c, 3}, /* Absolute */
-    {0x6c, 3}, /* Indirect */
+    {0x4c, 3, AM_ABS},
+    {0x6c, 3, AM_IND},
     /* jsr (jump to sub-routin) */
-    {0x20, 3}, /* Absolute */
+    {0x20, 3, AM_ABS},
     /* lda (load accumulator) */
-    {0xa9, 2}, /* Immediate */
-    {0xa5, 2}, /* Zero Page */
-    {0xb5, 2}, /* Zero Page,X */
-    {0xad, 3}, /* Absolute */
-    {0xbd, 3}, /* Absolute,X */
-    {0xb9, 3}, /* Absolute,Y */
-    {0xa1, 2}, /* Indirect,X */
-    {0xb1, 2}, /* Indirect,Y */
+    {0xa9, 2, AM_IMM},
+    {0xa5, 2, AM_ZPG},
+    {0xb5, 2, AM_ZPG_X},
+    {0xad, 3, AM_ABS},
+    {0xbd, 3, AM_ABS_X},
+    {0xb9, 3, AM_ABS_Y},
+    {0xa1, 2, AM_X_IND},
+    {0xb1, 2, AM_IND_Y},
     /* ldx (load x register) */
-    {0xa2, 2}, /* Immediate */
-    {0xa6, 2}, /* Zero Page */
-    {0xb6, 2}, /* Zero Page,Y */
-    {0xae, 3}, /* Absolute */
-    {0xbe, 3}, /* Absolute,Y */
+    {0xa2, 2, AM_IMM},
+    {0xa6, 2, AM_ZPG},
+    {0xb6, 2, AM_ZPG_Y},
+    {0xae, 3, AM_ABS},
+    {0xbe, 3, AM_ABS_Y},
     /* ldy (load y register) */
-    {0xa0, 2}, /* Immediate */
-    {0xa4, 2}, /* Zero Page */
-    {0xb4, 2}, /* Zero Page,Y */
-    {0xac, 3}, /* Absolute */
-    {0xbc, 3}, /* Absolute,Y */
+    {0xa0, 2, AM_IMM},
+    {0xa4, 2, AM_ZPG},
+    {0xb4, 2, AM_ZPG_X},
+    {0xac, 3, AM_ABS},
+    {0xbc, 3, AM_ABS_X},
     /* lsr (logical shift right) */
-    {0x4a, 1}, /* Accumulator */
-    {0x46, 2}, /* Zero Page */
-    {0x56, 2}, /* Zero Page,X */
-    {0x4e, 3}, /* Absolute */
-    {0x5e, 3}, /* Absolute,X */
+    {0x4a, 1, AM_ACC},
+    {0x46, 2, AM_ZPG},
+    {0x56, 2, AM_ZPG_X},
+    {0x4e, 3, AM_ABS},
+    {0x5e, 3, AM_ABS_X},
     /* ora (bitwise or with accumulator) */
-    {0x09, 2}, /* Immediate */
-    {0x05, 2}, /* Zero Page */
-    {0x15, 2}, /* Zero Page,X */
-    {0x0d, 3}, /* Absolute */
-    {0x1d, 3}, /* Absolute,X */
-    {0x19, 3}, /* Absolute,Y */
-    {0x01, 2}, /* Indirect,X */
-    {0x11, 2}, /* Indirect,Y */
+    {0x09, 2, AM_IMM},
+    {0x05, 2, AM_ZPG},
+    {0x15, 2, AM_ZPG_X},
+    {0x0d, 3, AM_ABS},
+    {0x1d, 3, AM_ABS_X},
+    {0x19, 3, AM_ABS_Y},
+    {0x01, 2, AM_X_IND},
+    {0x11, 2, AM_IND_Y},
     /* register instruction */
-    {0xaa, 1}, /* TAX (Transfer A to X) */
-    {0x8a, 1}, /* TXA (Transfer X to A) */
-    {0xca, 1}, /* DEX (DEcrement X) */
-    {0xe8, 1}, /* INX (INcrement X) */
-    {0xa8, 1}, /* TAY (Transfer A to Y) */
-    {0x98, 1}, /* TYA (Transfer Y to A) */
-    {0x88, 1}, /* DEY (DEcrement Y) */
-    {0xc8, 1}, /* INY (INcrement Y) */
+    {0xaa, 1, AM_IMPL}, /* TAX (Transfer A to X) */
+    {0x8a, 1, AM_IMPL}, /* TXA (Transfer X to A) */
+    {0xca, 1, AM_IMPL}, /* DEX (DEcrement X) */
+    {0xe8, 1, AM_IMPL}, /* INX (INcrement X) */
+    {0xa8, 1, AM_IMPL}, /* TAY (Transfer A to Y) */
+    {0x98, 1, AM_IMPL}, /* TYA (Transfer Y to A) */
+    {0x88, 1, AM_IMPL}, /* DEY (DEcrement Y) */
+    {0xc8, 1, AM_IMPL}, /* INY (INcrement Y) */
     /* rol (rotate left) */
-    {0x2a, 1}, /* Accumulator */
-    {0x26, 2}, /* Zero Page */
-    {0x36, 2}, /* Zero Page,X */
-    {0x2e, 3}, /* Absolute */
-    {0x3e, 3}, /* Absolute,X */
+    {0x2a, 1, AM_ACC},
+    {0x26, 2, AM_ZPG},
+    {0x36, 2, AM_ZPG_X},
+    {0x2e, 3, AM_ABS},
+    {0x3e, 3, AM_ABS_X},
     /* ror (rotate right) */
-    {0x6a, 1}, /* Accumulator */
-    {0x66, 2}, /* Zero Page */
-    {0x76, 2}, /* Zero Page,X */
-    {0x6e, 3}, /* Absolute */
-    {0x7e, 3}, /* Absolute,X */
+    {0x6a, 1, AM_ACC},
+    {0x66, 2, AM_ZPG},
+    {0x76, 2, AM_ZPG_X},
+    {0x6e, 3, AM_ABS},
+    {0x7e, 3, AM_ABS_X},
     /* rti (return from interrupt) */
-    {0x40, 1}, /* Implied */
+    {0x40, 1, AM_IMPL},
     /* rts (return from sub-routin) */
-    {0x60, 1}, /* Implied */
+    {0x60, 1, AM_IMPL},
     /* sbc (substract with carry) */
-    {0xe9, 2}, /* Immediate */
-    {0xe5, 2}, /* Zero Page */
-    {0xf5, 2}, /* Zero Page,X */
-    {0xed, 3}, /* Absolute */
-    {0xfd, 3}, /* Absolute,X */
-    {0xf9, 3}, /* Absolute,Y */
-    {0xe1, 2}, /* Indirect,X */
-    {0xf1, 2}, /* Indirect,Y */
+    {0xe9, 2, AM_IMM},
+    {0xe5, 2, AM_ZPG},
+    {0xf5, 2, AM_ZPG_X},
+    {0xed, 3, AM_ABS},
+    {0xfd, 3, AM_ABS_X},
+    {0xf9, 3, AM_ABS_Y},
+    {0xe1, 2, AM_X_IND},
+    {0xf1, 2, AM_IND_Y},
     /* sta (store accumulator) */
-    {0x85, 2}, /* Zero Page */
-    {0x95, 2}, /* Zero Page,X */
-    {0x8d, 3}, /* Absolute */
-    {0x9d, 3}, /* Absolute,X */
-    {0x99, 3}, /* Absolute,Y */
-    {0x81, 2}, /* Indirect,X */
-    {0x91, 2}, /* Indirect,Y */
+    {0x85, 2, AM_ZPG},
+    {0x95, 2, AM_ZPG_X},
+    {0x8d, 3, AM_ABS},
+    {0x9d, 3, AM_ABS_X},
+    {0x99, 3, AM_ABS_Y},
+    {0x81, 2, AM_X_IND},
+    {0x91, 2, AM_IND_Y},
     /* stack instruction */
-    {0x9a, 1}, /* TXS (Transfer X to Stack ptr) */
-    {0xba, 1}, /* TSX (Transfer Stack ptr to X) */
-    {0x48, 1}, /* PHA (PusH Accumulator) */
-    {0x68, 1}, /* PLA (PuLl Accumulator) */
-    {0x08, 1}, /* PHP (PusH Processor status) */
-    {0x28, 1}, /* PLP (PuLl Processor status) */
-    /* sta (store x register) */
-    {0x86, 2}, /* Zero Page */
-    {0x96, 2}, /* Zero Page,Y */
-    {0x8e, 3}, /* Absolute */
+    {0x9a, 1, AM_IMPL}, /* TXS (Transfer X to Stack ptr) */
+    {0xba, 1, AM_IMPL}, /* TSX (Transfer Stack ptr to X) */
+    {0x48, 1, AM_IMPL}, /* PHA (PusH Accumulator) */
+    {0x68, 1, AM_IMPL}, /* PLA (PuLl Accumulator) */
+    {0x08, 1, AM_IMPL}, /* PHP (PusH Processor status) */
+    {0x28, 1, AM_IMPL}, /* PLP (PuLl Processor status) */
+    /* stx (store x register) */
+    {0x86, 2, AM_ZPG},
+    {0x96, 2, AM_ZPG_Y},
+    {0x8e, 3, AM_ABS},
     /* sty (store y register) */
-    {0x84, 2}, /* Zero Page */
-    {0x94, 2}, /* Zero Page,Y */
-    {0x8c, 3}, /* Absolute */
+    {0x84, 2, AM_ZPG},
+    {0x94, 2, AM_ZPG_X},
+    {0x8c, 3, AM_ABS},
 };
 
 static struct cpu cpu6502;
