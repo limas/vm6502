@@ -26,12 +26,29 @@
 #define STATUS_REG_CLR_OVERFLOW()  do{cpu6502.regs.sr&=(~BIT(6));}while(0)
 #define STATUS_REG_CLR_NEGATIVE()  do{cpu6502.regs.sr&=(~BIT(7));}while(0)
 
+#define STATUS_REG_CHK_CARRY(r) \
+    do{ \
+        if((r) & 0x0100) \
+            STATUS_REG_SET_CARRY(); \
+        else \
+            STATUS_REG_CLR_CARRY(); \
+    }while(0)
+
 #define STATUS_REG_CHK_ZERO(r) \
     do{ \
         if((r) == 0) \
             STATUS_REG_SET_ZERO(); \
         else \
             STATUS_REG_CLR_ZERO(); \
+    }while(0)
+
+#define STATUS_REG_CHK_OVERFLOW(a, b, r) \
+    do{ \
+        if((((a) & 0x80) == ((b) & 0x80)) && \
+           (((a) & 0x80) != ((r) & 0x80))) \
+            STATUS_REG_SET_OVERFLOW(); \
+        else \
+            STATUS_REG_CLR_OVERFLOW(); \
     }while(0)
 
 #define STATUS_REG_CHK_NEGATIVE(r) \
@@ -127,7 +144,7 @@ struct instruction isa[]=
     {0x16, 2, AM_ZPG_X},
     {0x0e, 3, AM_ABS},
     {0x1e, 3, AM_ABS_X},
-    /* bit(test bits) */
+    /* bit (test bits) */
     {0x24, 2, AM_ZPG},
     {0x2c, 3, AM_ABS},
     /* branch */
@@ -139,7 +156,7 @@ struct instruction isa[]=
     {0xb0, 2, AM_REL}, /* BCS (Branch on Carry Set) */
     {0xd0, 2, AM_REL}, /* BNE (Branch on Not Equal) */
     {0xf0, 2, AM_REL}, /* BEQ (Branch on EQual) */
-    /* break */
+    /* brk */
     {0x00, 1, AM_IMPL},
     /* cmp (compare accumulator) */
     {0xc9, 2, AM_IMM},
@@ -324,6 +341,12 @@ void cpu_reset(void)
     cpu6502.regs.sp = 0xfd;
 }
 
+static void cpu_halt(void)
+{
+    printf("[CPU] cpu halt\n");
+    while(1) ;
+}
+
 static struct instruction *_find_instruction(uint8_t op_code)
 {
     uint8_t index;
@@ -344,7 +367,7 @@ static bool _handle_interrupt(void)
     return true;
 }
 
-static bool instr_fetch(uint8_t *op_code, uint8_t *data, uint8_t *num_data)
+static struct instruction *instr_fetch(uint8_t *op_code, uint8_t *data, uint8_t *num_data)
 {
     uint16_t pc;
     struct instruction *instr;
@@ -356,7 +379,7 @@ static bool instr_fetch(uint8_t *op_code, uint8_t *data, uint8_t *num_data)
     {
         /* error handle for illigle instruction */
         printf("can not find op code [0x%02x] on pc [0x%04x]\n", *op_code, pc);
-        return false;
+        return NULL;
     }
 
     *num_data = instr->num_op-1;
@@ -365,170 +388,140 @@ static bool instr_fetch(uint8_t *op_code, uint8_t *data, uint8_t *num_data)
         cpu_mem_read(pc+1, data, *num_data);
     }
 
-    /* update pc */
-    cpu6502.regs.pc+=(instr->num_op);
-
-    return true;
+    return instr;
 }
 
-static bool instr_load(uint8_t *reg, uint16_t addr)
+static void cpu_stack_push(uint8_t val)
 {
-    cpu_mem_read(addr, reg, 1);
-
-    STATUS_REG_CHK_ZERO(*reg);
-    STATUS_REG_CHK_NEGATIVE(*reg);
-
-    return true;
+    cpu_mem_write(cpu6502.regs.sp + 0x100, &val, 1);
+    cpu6502.regs.sp--;
 }
 
-static bool instr_adc(uint8_t op_code, uint8_t *data, uint8_t num_data)
+static uint8_t cpu_stack_pop(void)
 {
-    if(STATUS_REG_DECIMAL) /* do BCD addition */
+    uint8_t val;
+
+    cpu6502.regs.sp++;
+    cpu_mem_read(cpu6502.regs.sp + 0x100, &val, 1);
+
+    return val;
+}
+
+static uint16_t cal_addr(enum addr_mode addr_mode, uint8_t *data)
+{
+    uint16_t addr = 0;
+
+    switch(addr_mode)
     {
-    
+        case AM_ABS:
+            addr = data[0] + (data[1] << 8);
+            break;
+        case AM_ABS_X:
+            addr = data[0] + (data[1] << 8);
+            addr += (cpu6502.regs.idx_x + STATUS_REG_CARRY);
+            break;
+        case AM_ABS_Y:
+            addr = data[0] + (data[1] << 8);
+            addr += (cpu6502.regs.idx_y + STATUS_REG_CARRY);
+            break;
+        case AM_IND:
+            {
+                uint8_t l_data[2];
+                addr = data[0] + (data[1] << 8);
+                cpu_mem_read(addr, l_data, 2);
+                addr = l_data[0] + (l_data[1] << 8);
+            }
+            break;
+        case AM_X_IND:
+            {
+                uint8_t l_data[2];
+                addr = (data[0] + cpu6502.regs.idx_x) & 0x00ff;
+                cpu_mem_read(addr, l_data, 1);
+                addr = (data[0] + cpu6502.regs.idx_x + 1) & 0x00ff;
+                cpu_mem_read(addr, &l_data[1], 1);
+                addr = l_data[0] + (l_data[1] << 8);
+            }
+            break;
+        case AM_IND_Y:
+            {
+                uint8_t l_data[2];
+                addr = data[0];
+                cpu_mem_read(addr, l_data, 1);
+                addr = (data[0] + 1) & 0x00ff;
+                cpu_mem_read(addr, &l_data[1], 1);
+                addr = l_data[0] + (l_data[1] << 8);
+                addr += (cpu6502.regs.idx_y + STATUS_REG_CARRY);
+            }
+            break;
+        case AM_REL:
+            {
+                int8_t l_data = *((int8_t *)data);
+                addr = cpu6502.regs.pc + 2 + l_data;
+            }
+            break;
+        case AM_ZPG:
+            addr = data[0];
+            break;
+        case AM_ZPG_X:
+            addr = (data[0] + cpu6502.regs.idx_x) & 0x00ff;
+            break;
+        case AM_ZPG_Y:
+            addr = (data[0] + cpu6502.regs.idx_y) & 0x00ff;
+            break;
+        default:
+            printf("invalid address mode\n");
+            cpu_halt();
+    }
+
+    return addr;
+}
+
+static uint8_t cpu_addr_mode_read(enum addr_mode addr_mode, uint8_t *data)
+{
+    uint8_t ret;
+    uint16_t addr;
+
+    if (addr_mode == AM_IMM)
+    {
+        ret = data[0];
+    }
+    else if(addr_mode == AM_ACC)
+    {
+        ret = cpu6502.regs.acc;
     }
     else
     {
-    
+        addr = cal_addr(addr_mode, data);
+        cpu_mem_read(addr, &ret, 1);
     }
 
-    return true;
+    return ret;
 }
 
-static bool instr_exec(uint8_t op_code, uint8_t *data, uint8_t num_data)
+static void cpu_addr_mode_write(enum addr_mode addr_mode, uint8_t *data, uint8_t val)
 {
-    bool ret=true;
+    uint16_t addr;
+
+    if(addr_mode == AM_ACC)
+    {
+        cpu6502.regs.acc = val;
+    }
+    else
+    {
+        addr = cal_addr(addr_mode, data);
+        cpu_mem_write(addr, &val, 1);
+    }
+}
+
+static uint16_t instr_exec(struct instruction *instr, uint8_t *data, uint8_t num_data)
+{
+    uint16_t next_pc = cpu6502.regs.pc + instr->num_op;
+    uint8_t op_code = instr->code;
 
     switch(op_code)
     {
-        /* LDA (LoaD Accumulator) */
-        case 0xa9: /* Immediate */
-            cpu6502.regs.acc = data[0];
-
-            STATUS_REG_CHK_ZERO(cpu6502.regs.acc);
-            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.acc);
-
-            break;
-        case 0xa5: /* Zero Page */
-            instr_load(&cpu6502.regs.acc, data[0]);
-            break;
-        case 0xb5: /* Zero Page,X */
-            instr_load(&cpu6502.regs.acc, (data[0]+cpu6502.regs.idx_x)&0x00ff);
-            break;
-        case 0xad: /* Absolute */
-            {
-                uint16_t addr = ((data[1] << 8) + data[0]);
-                instr_load(&cpu6502.regs.acc, addr);
-            }
-            break;
-        case 0xbd: /* Absolute,X */
-            {
-                uint16_t addr = ((data[1] << 8) + data[0]) + cpu6502.regs.idx_x + STATUS_REG_CARRY;
-                instr_load(&cpu6502.regs.acc, addr);
-            }
-            break;
-        case 0xb9: /* Absolute,Y */
-            {
-                uint16_t addr = ((data[1] << 8) + data[0]) + cpu6502.regs.idx_y + STATUS_REG_CARRY;
-                instr_load(&cpu6502.regs.acc, addr);
-            }
-            break;
-        case 0xa1: /* X-indexed,Indirect */
-            {
-                uint16_t addr = (data[0] + cpu6502.regs.idx_x)&0x00ff;
-                cpu_mem_read(addr, (uint8_t *)&addr, 2);
-                instr_load(&cpu6502.regs.acc, addr);
-            }
-            break;
-        case 0xb1: /* Indirect,Y-indexed */
-            {
-                uint16_t addr;
-                cpu_mem_read(data[0], (uint8_t *)&addr, 2);
-                addr+=(cpu6502.regs.idx_y+STATUS_REG_CARRY);
-                instr_load(&cpu6502.regs.acc, addr);
-            }
-            break;
-        /* LDX (LoaD X register) */
-        case 0xa2: /* Immediate */
-            cpu6502.regs.idx_x = data[0];
-
-            STATUS_REG_CHK_ZERO(cpu6502.regs.idx_x);
-            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.idx_x);
-
-            break;
-        case 0xa6: /* Zero Page */
-            instr_load(&cpu6502.regs.idx_x, data[0]);
-            break;
-        case 0xb6: /* Zero Page,Y */
-            instr_load(&cpu6502.regs.idx_x, (data[0]+cpu6502.regs.idx_y)&0x00ff);
-            break;
-        case 0xae: /* Absolute */
-            {
-                uint16_t addr = ((data[1] << 8) + data[0]);
-                instr_load(&cpu6502.regs.idx_x, addr);
-            }
-            break;
-        case 0xbe: /* Absolute,Y */
-            {
-                uint16_t addr = ((data[1] << 8) + data[0]) + cpu6502.regs.idx_y + STATUS_REG_CARRY;
-                instr_load(&cpu6502.regs.idx_x, addr);
-            }
-            break;
-        /* LDY (LoaD Y register) */
-        case 0xa0: /* Immediate */
-            cpu6502.regs.idx_y = data[0];
-
-            STATUS_REG_CHK_ZERO(cpu6502.regs.idx_y);
-            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.idx_y);
-
-            break;
-        case 0xa4: /* Zero Page */
-            instr_load(&cpu6502.regs.idx_y, data[0]);
-            break;
-        case 0xb4: /* Zero Page,X */
-            instr_load(&cpu6502.regs.idx_y, (data[0]+cpu6502.regs.idx_x)&0x00ff);
-            break;
-        case 0xac: /* Absolute */
-            {
-                uint16_t addr = ((data[1] << 8) + data[0]);
-                instr_load(&cpu6502.regs.idx_y, addr);
-            }
-            break;
-        case 0xbc: /* Absolute,X */
-            {
-                uint16_t addr = ((data[1] << 8) + data[0]) + cpu6502.regs.idx_x + STATUS_REG_CARRY;
-                instr_load(&cpu6502.regs.idx_y, addr);
-            }
-            break;
-        /* Jump Instructions */
-        case 0x20: /* JSR (Jump to SubRoutine) */
-            {
-                uint8_t value[2];
-
-                value[0] = ((cpu6502.regs.pc-1)&0xff00)>>8;
-                value[1] = (cpu6502.regs.pc-1)&0x00ff;
-                cpu_mem_write(cpu6502.regs.sp-1+0x100, value, 2);
-                cpu6502.regs.sp -= 2;
-            }
-        case 0x4c: /* JMP (JuMP) Absolute */
-            cpu6502.regs.pc = (data[1]<<8 | data[0]);
-            break;
-        case 0x6c: /* JMP (JuMP) Indirect */
-            {
-                uint8_t value[2];
-
-                cpu_mem_read(((data[1]<<8) |  data[0]), value, 2);
-                cpu6502.regs.pc = ((value[1]<<8) | value[0]);
-            }
-            break;
-        case 0x60: /* RTS (ReTurn from Subroutine) */
-            {
-                uint8_t value[2];
-
-                cpu_mem_read(cpu6502.regs.sp+0x100+1, value, 2);
-                cpu6502.regs.pc = ((value[0]<<8) | value[1])+1;
-                cpu6502.regs.sp += 2;
-            }
+        /* nop */
+        case 0xea:
             break;
         /* ADC */
         case 0x69:
@@ -539,38 +532,205 @@ static bool instr_exec(uint8_t op_code, uint8_t *data, uint8_t num_data)
         case 0x79:
         case 0x61:
         case 0x71:
-            ret = instr_adc(op_code, data, num_data);
-            break;
-        /* Stack Instructions */
-        case 0x08: /* PHP (PusH Processor status) */
-            cpu_mem_write(cpu6502.regs.sp+0x100, &cpu6502.regs.sr, 1);
-            cpu6502.regs.sp--;
-            break;
-        case 0x28: /* PLP (PuLl Processor status) */
-            cpu_mem_read(cpu6502.regs.sp+0x100+1, &cpu6502.regs.sr, 1);
-            cpu6502.regs.sp++;
-            break;
-        case 0x48: /* PHA (PusH Accumulator) */
-            cpu_mem_write(cpu6502.regs.sp+0x100, &cpu6502.regs.acc, 1);
-            cpu6502.regs.sp--;
-            break;
-        case 0x68: /* PLA (PuLl Accumulator) */
-            cpu_mem_read(cpu6502.regs.sp+0x100+1, &cpu6502.regs.acc, 1);
-            cpu6502.regs.sp++;
+            {
+                uint8_t addend;
+                uint16_t result;
+
+                addend = cpu_addr_mode_read(instr->addr_mode, data);
+                result = cpu6502.regs.acc + addend + STATUS_REG_CARRY;
+
+                STATUS_REG_CHK_CARRY(result);
+                STATUS_REG_CHK_ZERO(result);
+                STATUS_REG_CHK_OVERFLOW(cpu6502.regs.acc, addend, result);
+                STATUS_REG_CHK_NEGATIVE(result);
+
+                cpu6502.regs.acc = (uint8_t)result;
+                break;
+            }
+        /* AND */
+        case 0x29:
+        case 0x25:
+        case 0x35:
+        case 0x2d:
+        case 0x3d:
+        case 0x39:
+        case 0x21:
+        case 0x31:
+            cpu6502.regs.acc &= cpu_addr_mode_read(instr->addr_mode, data);
 
             STATUS_REG_CHK_ZERO(cpu6502.regs.acc);
             STATUS_REG_CHK_NEGATIVE(cpu6502.regs.acc);
-
             break;
-        case 0x9A: /* TXS (Transfer X to Stack ptr) */
-            cpu6502.regs.sp = cpu6502.regs.idx_x;
+        /* ASL */
+        case 0x0a:
+        case 0x06:
+        case 0x16:
+        case 0x0e:
+        case 0x1e:
+            {
+                uint16_t result;
+
+                result = cpu_addr_mode_read(instr->addr_mode, data);
+                result <<= 1;
+                cpu_addr_mode_write(instr->addr_mode, data, (uint8_t)result);
+
+                STATUS_REG_CHK_CARRY(result);
+                STATUS_REG_CHK_ZERO(result);
+                STATUS_REG_CHK_NEGATIVE(result);
+                break;
+            }
+        /* BIT */
+        case 0x24:
+        case 0x2c:
+            {
+                uint8_t operand;
+
+                operand = cpu_addr_mode_read(instr->addr_mode, data);
+                if(operand & 0x80)
+                    STATUS_REG_SET_NEGATIVE();
+                else
+                    STATUS_REG_CLR_NEGATIVE();
+
+                if(operand & 0x40)
+                    STATUS_REG_SET_OVERFLOW();
+                else
+                    STATUS_REG_CLR_OVERFLOW();
+
+                operand &= cpu6502.regs.acc;
+
+                STATUS_REG_CHK_ZERO(operand);
+                break;
+            }
+        /* BPL (Branch on PLus) */
+        case 0x10:
+            if(!STATUS_REG_NEGATIVE)
+                next_pc = cal_addr(instr->addr_mode, data);
             break;
-        case 0xBA: /* TSX (Transfer Stack ptr to X) */
-            cpu6502.regs.idx_x = cpu6502.regs.sp;
+        /* BMI (Branch on MInus) */
+        case 0x30:
+            if(STATUS_REG_NEGATIVE)
+                next_pc = cal_addr(instr->addr_mode, data);
+            break;
+        /* BVC (Branch on oVerflow Clear) */
+        case 0x50:
+            if(!STATUS_REG_OVERFLOW)
+                next_pc = cal_addr(instr->addr_mode, data);
+            break;
+        /* BVS (Branch on oVerflow Set) */
+        case 0x70:
+            if(STATUS_REG_OVERFLOW)
+                next_pc = cal_addr(instr->addr_mode, data);
+            break;
+        /* BCC (Branch on Carry Clear) */
+        case 0x90:
+            if(!STATUS_REG_CARRY)
+                next_pc = cal_addr(instr->addr_mode, data);
+            break;
+        /* BCS (Branch on Carry Set) */
+        case 0xb0:
+            if(STATUS_REG_CARRY)
+                next_pc = cal_addr(instr->addr_mode, data);
+            break;
+        /* BNE (Branch on Not Equal) */
+        case 0xd0:
+            if(!STATUS_REG_ZERO)
+                next_pc = cal_addr(instr->addr_mode, data);
+            break;
+        /* BEQ (Branch on EQual) */
+        case 0xf0:
+            if(STATUS_REG_ZERO)
+                next_pc = cal_addr(instr->addr_mode, data);
+            break;
+        /* BRK */
+        case 0x00:
+            {
+                uint8_t value[2];
 
-            STATUS_REG_CHK_ZERO(cpu6502.regs.idx_x);
-            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.idx_x);
+                value[0] = ((cpu6502.regs.pc+2)>>8)&0x00ff;
+                value[1] = (cpu6502.regs.pc+2)&0x00ff;
+                cpu_stack_push(value[0]);
+                cpu_stack_push(value[1]);
+                cpu_stack_push(cpu6502.regs.sr);
+                break;
+            }
+        /* CMP */
+        case 0xc9:
+        case 0xc5:
+        case 0xd5:
+        case 0xcd:
+        case 0xdd:
+        case 0xd9:
+        case 0xc1:
+        case 0xd1:
+            {
+                uint16_t result;
 
+                result = cpu6502.regs.acc - cpu_addr_mode_read(instr->addr_mode, data);
+
+                STATUS_REG_CHK_CARRY(result);
+                STATUS_REG_CHK_ZERO(result);
+                STATUS_REG_CHK_NEGATIVE(result);
+                break;
+            }
+        /* CPX */
+        case 0xe0:
+        case 0xe4:
+        case 0xec:
+            {
+                uint16_t result;
+
+                result = cpu6502.regs.idx_x - cpu_addr_mode_read(instr->addr_mode, data);
+
+                STATUS_REG_CHK_CARRY(result);
+                STATUS_REG_CHK_ZERO(result);
+                STATUS_REG_CHK_NEGATIVE(result);
+                break;
+            }
+        /* CPY */
+        case 0xc0:
+        case 0xc4:
+        case 0xcc:
+            {
+                uint16_t result;
+
+                result = cpu6502.regs.idx_y - cpu_addr_mode_read(instr->addr_mode, data);
+
+                STATUS_REG_CHK_CARRY(result);
+                STATUS_REG_CHK_ZERO(result);
+                STATUS_REG_CHK_NEGATIVE(result);
+                break;
+            }
+        /* DEC */
+        case 0xc6:
+        case 0xd6:
+        case 0xce:
+        case 0xde:
+            {
+                uint16_t addr;
+                uint8_t operand;
+
+                addr = cal_addr(instr->addr_mode, data);
+                cpu_mem_read(addr, &operand, 1);
+                operand -= 1;
+                cpu_mem_write(addr, &operand, 1);
+
+                STATUS_REG_CHK_ZERO(operand);
+                STATUS_REG_CHK_NEGATIVE(operand);
+                break;
+            }
+        /* EOR */
+        case 0x49:
+        case 0x45:
+        case 0x55:
+        case 0x4d:
+        case 0x5d:
+        case 0x59:
+        case 0x41:
+        case 0x51:
+            cpu6502.regs.acc ^= cpu_addr_mode_read(instr->addr_mode, data);
+
+            STATUS_REG_CHK_ZERO(cpu6502.regs.acc);
+            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.acc);
             break;
         /* Flag (Processor Status) Instructions */
         case 0x18: /* CLC (CLear Carry) */
@@ -585,21 +745,305 @@ static bool instr_exec(uint8_t op_code, uint8_t *data, uint8_t num_data)
         case 0x78: /* SEI (SEt Interrupt) */
             STATUS_REG_SET_INTERRUPT();
             break;
-        case 0xB8: /* CLV (CLear oVerflow) */
+        case 0xb8: /* CLV (CLear oVerflow) */
             STATUS_REG_CLR_OVERFLOW();
             break;
-        case 0xD8: /* CLD (CLear Decimal) */
+        case 0xd8: /* CLD (CLear Decimal) */
             STATUS_REG_CLR_DECIMAL();
             break;
-        case 0xF8: /* SED (SEt Decimal) */
+        case 0xf8: /* SED (SEt Decimal) */
             STATUS_REG_SET_DECIMAL();
             break;
-        default:
-            //return false;
+        /* INC */
+        case 0xe6:
+        case 0xf6:
+        case 0xee:
+        case 0xfe:
+            {
+                uint16_t addr;
+                uint8_t operand;
+
+                addr = cal_addr(instr->addr_mode, data);
+                cpu_mem_read(addr, &operand, 1);
+                operand += 1;
+                cpu_mem_write(addr, &operand, 1);
+
+                STATUS_REG_CHK_ZERO(operand);
+                STATUS_REG_CHK_NEGATIVE(operand);
+                break;
+            }
+        /* Jump Instructions */
+        case 0x20: /* JSR (Jump to SubRoutine) */
+            {
+                uint8_t value[2];
+
+                value[0] = ((cpu6502.regs.pc+2)&0xff00)>>8;
+                value[1] = (cpu6502.regs.pc+2)&0x00ff;
+                cpu_stack_push(value[0]);
+                cpu_stack_push(value[1]);
+            }
+        case 0x4c: /* JMP (JuMP) Absolute */
+        case 0x6c: /* JMP (JuMP) Indirect */
+            next_pc = cal_addr(instr->addr_mode, data);
             break;
+        /* LDA */
+        case 0xa9: /* Immediate */
+        case 0xa5: /* Zero Page */
+        case 0xb5: /* Zero Page,X */
+        case 0xad: /* Absolute */
+        case 0xbd: /* Absolute,X */
+        case 0xb9: /* Absolute,Y */
+        case 0xa1: /* X-indexed,Indirect */
+        case 0xb1: /* Indirect,Y-indexed */
+            cpu6502.regs.acc = cpu_addr_mode_read(instr->addr_mode, data);
+
+            STATUS_REG_CHK_ZERO(cpu6502.regs.acc);
+            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.acc);
+            break;
+        /* LDX */
+        case 0xa2: /* Immediate */
+        case 0xa6: /* Zero Page */
+        case 0xb6: /* Zero Page,Y */
+        case 0xae: /* Absolute */
+        case 0xbe: /* Absolute,Y */
+            cpu6502.regs.idx_x = cpu_addr_mode_read(instr->addr_mode, data);
+
+            STATUS_REG_CHK_ZERO(cpu6502.regs.idx_x);
+            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.idx_x);
+            break;
+        /* LDY */
+        case 0xa0: /* Immediate */
+        case 0xa4: /* Zero Page */
+        case 0xb4: /* Zero Page,X */
+        case 0xac: /* Absolute */
+        case 0xbc: /* Absolute,X */
+            cpu6502.regs.idx_y = cpu_addr_mode_read(instr->addr_mode, data);
+
+            STATUS_REG_CHK_ZERO(cpu6502.regs.idx_y);
+            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.idx_y);
+            break;
+        /* LSR */
+        case 0x4a:
+        case 0x46:
+        case 0x56:
+        case 0x4e:
+        case 0x5e:
+            {
+                uint8_t result;
+
+                result = cpu_addr_mode_read(instr->addr_mode, data);
+                result >>= 1;
+                cpu_addr_mode_write(instr->addr_mode, data, result);
+
+                STATUS_REG_CHK_CARRY(result);
+                STATUS_REG_CHK_ZERO(result);
+                STATUS_REG_CHK_NEGATIVE(result);
+                break;
+            }
+        /* ORA */
+        case 0x09:
+        case 0x05:
+        case 0x15:
+        case 0x0d:
+        case 0x1d:
+        case 0x19:
+        case 0x01:
+        case 0x11:
+            cpu6502.regs.acc |= cpu_addr_mode_read(instr->addr_mode, data);
+
+            STATUS_REG_CHK_ZERO(cpu6502.regs.acc);
+            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.acc);
+            break;
+        /* register instruction */
+        case 0xaa: /* TAX (Transfer A to X) */
+            cpu6502.regs.idx_x = cpu6502.regs.acc;
+
+            STATUS_REG_CHK_ZERO(cpu6502.regs.idx_x);
+            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.idx_x);
+            break;
+        case 0x8a: /* TXA (Transfer X to A) */
+            cpu6502.regs.acc = cpu6502.regs.idx_x;
+
+            STATUS_REG_CHK_ZERO(cpu6502.regs.acc);
+            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.acc);
+            break;
+        case 0xca: /* DEX (DEcrement X) */
+            cpu6502.regs.idx_x--;
+
+            STATUS_REG_CHK_ZERO(cpu6502.regs.idx_x);
+            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.idx_x);
+            break;
+        case 0xe8: /* INX (INcrement X) */
+            cpu6502.regs.idx_x++;
+
+            STATUS_REG_CHK_ZERO(cpu6502.regs.idx_x);
+            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.idx_x);
+            break;
+        case 0xa8: /* TAY (Transfer A to Y) */
+            cpu6502.regs.idx_y = cpu6502.regs.acc;
+
+            STATUS_REG_CHK_ZERO(cpu6502.regs.idx_y);
+            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.idx_y);
+            break;
+        case 0x98: /* TYA (Transfer Y to A) */
+            cpu6502.regs.acc = cpu6502.regs.idx_y;
+
+            STATUS_REG_CHK_ZERO(cpu6502.regs.acc);
+            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.acc);
+            break;
+        case 0x88: /* DEY (DEcrement Y) */
+            cpu6502.regs.idx_y--;
+
+            STATUS_REG_CHK_ZERO(cpu6502.regs.idx_y);
+            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.idx_y);
+            break;
+        case 0xc8: /* INY (INcrement Y) */
+            cpu6502.regs.idx_y++;
+
+            STATUS_REG_CHK_ZERO(cpu6502.regs.idx_y);
+            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.idx_y);
+            break;
+        /* ROL */
+        case 0x2a:
+        case 0x26:
+        case 0x36:
+        case 0x2e:
+        case 0x3e:
+            {
+                uint16_t result;
+
+                result = cpu_addr_mode_read(instr->addr_mode, data);
+                result <<= 1;
+                result |= STATUS_REG_CARRY;
+                cpu_addr_mode_write(instr->addr_mode, data, (uint8_t)result);
+
+                STATUS_REG_CHK_CARRY(result);
+                STATUS_REG_CHK_ZERO(result);
+                STATUS_REG_CHK_NEGATIVE(result);
+                break;
+            }
+        /* ROR */
+        case 0x6a:
+        case 0x66:
+        case 0x76:
+        case 0x6e:
+        case 0x7e:
+            {
+                uint8_t result;
+                uint8_t carry;
+
+                result = cpu_addr_mode_read(instr->addr_mode, data);
+                carry = result & 0x01;
+                result >>= 1;
+                result |= (STATUS_REG_CARRY?0x80:0);
+                cpu_addr_mode_write(instr->addr_mode, data, result);
+
+                if(carry)
+                    STATUS_REG_SET_CARRY();
+                else
+                    STATUS_REG_CLR_CARRY();
+                STATUS_REG_CHK_ZERO(result);
+                STATUS_REG_CHK_NEGATIVE(result);
+                break;
+            }
+        /* RTI */
+        case 0x40:
+            {
+                uint8_t value[2];
+
+                cpu6502.regs.sr = cpu_stack_pop();
+                value[0] = cpu_stack_pop();
+                value[1] = cpu_stack_pop();
+                next_pc = ((value[0]<<8) | value[1]);
+            }
+            break;
+        /* RTS */
+        case 0x60:
+            {
+                uint8_t value[2];
+
+                value[1] = cpu_stack_pop();
+                value[0] = cpu_stack_pop();
+                next_pc = ((value[0]<<8) | value[1]) + 1;
+            }
+            break;
+        /* SBC */
+        case 0xe9:
+        case 0xe5:
+        case 0xf5:
+        case 0xed:
+        case 0xfd:
+        case 0xf9:
+        case 0xe1:
+        case 0xf1:
+            {
+                uint8_t minuend;
+                uint16_t result;
+
+                minuend = cpu_addr_mode_read(instr->addr_mode, data);
+                result = cpu6502.regs.acc - minuend - STATUS_REG_CARRY;
+
+                STATUS_REG_CHK_CARRY(result);
+                STATUS_REG_CHK_ZERO(result);
+                STATUS_REG_CHK_OVERFLOW(cpu6502.regs.acc, minuend ^ 0x80, result);
+                STATUS_REG_CHK_NEGATIVE(result);
+
+                cpu6502.regs.acc = (uint8_t)result;
+            }
+            break;
+        /* STA */
+        case 0x85:
+        case 0x95:
+        case 0x8d:
+        case 0x9d:
+        case 0x99:
+        case 0x81:
+        case 0x91:
+            cpu_addr_mode_write(instr->addr_mode, data, cpu6502.regs.acc);
+            break;
+        /* Stack Instructions */
+        case 0x08: /* PHP (PusH Processor status) */
+            cpu_stack_push(cpu6502.regs.sr);
+            break;
+        case 0x28: /* PLP (PuLl Processor status) */
+            cpu6502.regs.sr = cpu_stack_pop();
+            break;
+        case 0x48: /* PHA (PusH Accumulator) */
+            cpu_stack_push(cpu6502.regs.acc);
+            break;
+        case 0x68: /* PLA (PuLl Accumulator) */
+            cpu6502.regs.acc = cpu_stack_pop();
+
+            STATUS_REG_CHK_ZERO(cpu6502.regs.acc);
+            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.acc);
+            break;
+        case 0x9A: /* TXS (Transfer X to Stack ptr) */
+            cpu6502.regs.sp = cpu6502.regs.idx_x;
+            break;
+        case 0xBA: /* TSX (Transfer Stack ptr to X) */
+            cpu6502.regs.idx_x = cpu6502.regs.sp;
+
+            STATUS_REG_CHK_ZERO(cpu6502.regs.idx_x);
+            STATUS_REG_CHK_NEGATIVE(cpu6502.regs.idx_x);
+            break;
+        /* STX */
+        case 0x86:
+        case 0x96:
+        case 0x8e:
+            cpu_addr_mode_write(instr->addr_mode, data, cpu6502.regs.idx_x);
+            break;
+        /* STY */
+        case 0x84:
+        case 0x94:
+        case 0x8c:
+            cpu_addr_mode_write(instr->addr_mode, data, cpu6502.regs.idx_y);
+            break;
+        default:
+            fprintf(stderr, "[CPU] unhandle instruction [0x%02x]\n", op_code);
+            cpu_halt();
     }
 
-    return ret;
+    return next_pc;
 }
 
 bool cpu_run(void)
@@ -607,15 +1051,15 @@ bool cpu_run(void)
     uint8_t op_code;
     uint8_t data[4];
     uint8_t num_data;
+    struct instruction *instr;
 
     if(STATUS_REG_INTERRUPT)
         _handle_interrupt();
 
-    if(instr_fetch(&op_code, data, &num_data) == false)
+    if((instr = instr_fetch(&op_code, data, &num_data)) == NULL)
         return false;
 
-    if(instr_exec(op_code, data, num_data) == false)
-        return false;
+    cpu6502.regs.pc = instr_exec(instr, data, num_data);
 
     return true;
 }

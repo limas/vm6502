@@ -1,4 +1,4 @@
-.PHONY: all clean run
+.PHONY: all clean run dbg
 
 Q := @
 
@@ -34,3 +34,6 @@ $(OBJS) : %.o : %.c
 run: $(EXE_NAME)
 	$(Q)echo [RUN] $@
 	$(Q)./$(EXE_NAME) -f rom/Super_Mario_Bros.nes
+
+dbg: $(EXE_NAME)
+	$(Q)gdb -args ./$(EXE_NAME) -f rom/Super_Mario_Bros.nes
