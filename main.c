@@ -7,8 +7,8 @@
 
 
 #include "cpu.h"
-/*
 #include "ppu.h"
+/*
 #include "apu.h"
 */
 
@@ -55,6 +55,8 @@ typedef bool (*io_handle_read)(uint16_t addr, uint8_t *data, uint16_t len);
 
 static bool ram_write(uint16_t addr, uint8_t *data, uint16_t len);
 static bool ram_read(uint16_t addr, uint8_t *data, uint16_t len);
+static bool ppu_reg_write(uint16_t addr, uint8_t *data, uint16_t len);
+static bool ppu_reg_read(uint16_t addr, uint8_t *data, uint16_t len);
 static bool cartridge_rom_write(uint16_t addr, uint8_t *data, uint16_t len);
 static bool cartridge_rom_read(uint16_t addr, uint8_t *data, uint16_t len);
 
@@ -65,11 +67,6 @@ struct memory_map_entry
     uint16_t end;
     io_handle_write write;
     io_handle_read read;
-};
-
-struct ppu
-{
-
 };
 
 struct apu
@@ -91,9 +88,11 @@ struct memory_map_entry cpu_map[]=
         .read=ram_read,
     },
     {
-        .name="io",
+        .name="ppu_regs",
         .start=0x2000,
-        .end=0x4fff,
+        .end=0x3fff,
+        .write=ppu_reg_write,
+        .read=ppu_reg_read,
     },
     {
         .name="extent_module",
@@ -257,6 +256,22 @@ static bool ram_init(void)
     return true;
 }
 
+static bool ppu_reg_write(uint16_t addr, uint8_t *data, uint16_t len)
+{
+    uint8_t *regs = (uint8_t *)&ppu.regs;
+    regs[addr % 8] = *data;
+
+    return true;
+}
+
+static bool ppu_reg_read(uint16_t addr, uint8_t *data, uint16_t len)
+{
+    uint8_t *regs = (uint8_t *)&ppu.regs;
+    *data = regs[addr % 8];
+
+    return true;
+}
+
 static bool cartridge_rom_write(uint16_t addr, uint8_t *data, uint16_t len)
 {
     return false;
@@ -396,6 +411,7 @@ int main(int argc, char **argv)
     }
 
     cpu_reset();
+    ppu_reset();
 
     while(1)
     {
