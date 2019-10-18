@@ -608,18 +608,14 @@ bool cpu_run(void)
     uint8_t data[4];
     uint8_t num_data;
 
-    while(1)
-    {
-        if(STATUS_REG_INTERRUPT)
-            _handle_interrupt();
+    if(STATUS_REG_INTERRUPT)
+        _handle_interrupt();
 
-        if(instr_fetch(&op_code, data, &num_data) == false)
-            continue;
+    if(instr_fetch(&op_code, data, &num_data) == false)
+        return false;
 
-        if(instr_exec(op_code, data, num_data) == false)
-        {
-        }
-    }
+    if(instr_exec(op_code, data, num_data) == false)
+        return false;
 
     return true;
 }

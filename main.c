@@ -397,7 +397,11 @@ int main(int argc, char **argv)
 
     cpu_reset();
 
-    cpu_run();
+    while(1)
+    {
+        if(cpu_run() == false)
+            break;
+    }
 
     unload_rom();
 
