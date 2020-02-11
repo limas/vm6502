@@ -418,11 +418,11 @@ static uint16_t cal_addr(enum addr_mode addr_mode, uint8_t *data)
             break;
         case AM_ABS_X:
             addr = data[0] + (data[1] << 8);
-            addr += (cpu6502.regs.idx_x + STATUS_REG_CARRY);
+            addr += cpu6502.regs.idx_x;
             break;
         case AM_ABS_Y:
             addr = data[0] + (data[1] << 8);
-            addr += (cpu6502.regs.idx_y + STATUS_REG_CARRY);
+            addr += cpu6502.regs.idx_y;
             break;
         case AM_IND:
             {
@@ -450,7 +450,7 @@ static uint16_t cal_addr(enum addr_mode addr_mode, uint8_t *data)
                 addr = (data[0] + 1) & 0x00ff;
                 cpu_mem_read(addr, &l_data[1], 1);
                 addr = l_data[0] + (l_data[1] << 8);
-                addr += (cpu6502.regs.idx_y + STATUS_REG_CARRY);
+                addr += cpu6502.regs.idx_y;
             }
             break;
         case AM_REL:
