@@ -663,13 +663,27 @@ static uint16_t instr_exec(struct instruction *instr, uint8_t *data, uint8_t num
         case 0xc1:
         case 0xd1:
             {
-                uint16_t result;
+                uint8_t value;
 
-                result = cpu6502.regs.acc - cpu_addr_mode_read(instr->addr_mode, data);
-
-                STATUS_REG_CHK_CARRY(result);
-                STATUS_REG_CHK_ZERO(result);
-                STATUS_REG_CHK_NEGATIVE(result);
+                value = cpu_addr_mode_read(instr->addr_mode, data);
+                if(cpu6502.regs.acc == value)
+                {
+                    STATUS_REG_SET_CARRY();
+                    STATUS_REG_SET_ZERO();
+                    STATUS_REG_CLR_NEGATIVE();
+                }
+                else if(cpu6502.regs.acc < value)
+                {
+                    STATUS_REG_CLR_CARRY();
+                    STATUS_REG_CLR_ZERO();
+                    STATUS_REG_SET_NEGATIVE();
+                }
+                else
+                {
+                    STATUS_REG_SET_CARRY();
+                    STATUS_REG_CLR_ZERO();
+                    STATUS_REG_CLR_NEGATIVE();
+                }
                 break;
             }
         /* CPX */
@@ -677,13 +691,27 @@ static uint16_t instr_exec(struct instruction *instr, uint8_t *data, uint8_t num
         case 0xe4:
         case 0xec:
             {
-                uint16_t result;
+                uint8_t value;
 
-                result = cpu6502.regs.idx_x - cpu_addr_mode_read(instr->addr_mode, data);
-
-                STATUS_REG_CHK_CARRY(result);
-                STATUS_REG_CHK_ZERO(result);
-                STATUS_REG_CHK_NEGATIVE(result);
+                value = cpu_addr_mode_read(instr->addr_mode, data);
+                if(cpu6502.regs.idx_x == value)
+                {
+                    STATUS_REG_SET_CARRY();
+                    STATUS_REG_SET_ZERO();
+                    STATUS_REG_CLR_NEGATIVE();
+                }
+                else if(cpu6502.regs.idx_x < value)
+                {
+                    STATUS_REG_CLR_CARRY();
+                    STATUS_REG_CLR_ZERO();
+                    STATUS_REG_SET_NEGATIVE();
+                }
+                else
+                {
+                    STATUS_REG_SET_CARRY();
+                    STATUS_REG_CLR_ZERO();
+                    STATUS_REG_CLR_NEGATIVE();
+                }
                 break;
             }
         /* CPY */
@@ -691,13 +719,27 @@ static uint16_t instr_exec(struct instruction *instr, uint8_t *data, uint8_t num
         case 0xc4:
         case 0xcc:
             {
-                uint16_t result;
+                uint8_t value;
 
-                result = cpu6502.regs.idx_y - cpu_addr_mode_read(instr->addr_mode, data);
-
-                STATUS_REG_CHK_CARRY(result);
-                STATUS_REG_CHK_ZERO(result);
-                STATUS_REG_CHK_NEGATIVE(result);
+                value = cpu_addr_mode_read(instr->addr_mode, data);
+                if(cpu6502.regs.idx_y == value)
+                {
+                    STATUS_REG_SET_CARRY();
+                    STATUS_REG_SET_ZERO();
+                    STATUS_REG_CLR_NEGATIVE();
+                }
+                else if(cpu6502.regs.idx_y < value)
+                {
+                    STATUS_REG_CLR_CARRY();
+                    STATUS_REG_CLR_ZERO();
+                    STATUS_REG_SET_NEGATIVE();
+                }
+                else
+                {
+                    STATUS_REG_SET_CARRY();
+                    STATUS_REG_CLR_ZERO();
+                    STATUS_REG_CLR_NEGATIVE();
+                }
                 break;
             }
         /* DEC */
